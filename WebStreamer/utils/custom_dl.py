@@ -184,37 +184,41 @@ class ByteStreamer:
         current_part = 1
         location = await self.get_location(file_id)
 
-        try:
-            r = await media_session.invoke(
+        async def fetch(off):
+            return await media_session.invoke(
                 raw.functions.upload.GetFile(
-                    location=location, offset=offset, limit=chunk_size
+                    location=location, offset=off, limit=chunk_size
                 ),
             )
-            if isinstance(r, raw.types.upload.File):
-                while True:
-                    chunk = r.bytes
-                    if not chunk:
-                        break
-                    elif part_count == 1:
-                        yield chunk[first_part_cut:last_part_cut]
-                    elif current_part == 1:
-                        yield chunk[first_part_cut:]
-                    elif current_part == part_count:
-                        yield chunk[:last_part_cut]
-                    else:
-                        yield chunk
 
-                    current_part += 1
-                    offset += chunk_size
+        try:
+            # kick off first request, then immediately kick off the next
+            # one in background while current chunk gets sent to client.
+            next_task = asyncio.create_task(fetch(offset))
+            while True:
+                r = await next_task
+                if not isinstance(r, raw.types.upload.File):
+                    break
+                chunk = r.bytes
+                if not chunk:
+                    break
 
-                    if current_part > part_count:
-                        break
+                offset += chunk_size
+                if current_part < part_count:
+                    next_task = asyncio.create_task(fetch(offset))
 
-                    r = await media_session.invoke(
-                        raw.functions.upload.GetFile(
-                            location=location, offset=offset, limit=chunk_size
-                        ),
-                    )
+                if part_count == 1:
+                    yield chunk[first_part_cut:last_part_cut]
+                elif current_part == 1:
+                    yield chunk[first_part_cut:]
+                elif current_part == part_count:
+                    yield chunk[:last_part_cut]
+                else:
+                    yield chunk
+
+                current_part += 1
+                if current_part > part_count:
+                    break
         except (TimeoutError, AttributeError):
             pass
         finally:
