@@ -1,4 +1,4 @@
-pyrofork
+pyrotgfork
 aiohttp[speedups]
 pytgcrypto
 python-dotenv
