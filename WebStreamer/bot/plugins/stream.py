@@ -72,13 +72,11 @@ async def media_receive_handler(_, m: Message):
     size_str = get_size_readable(file_size) if file_size else "Unknown"
 
     reply_text = (
-        "__<b>Your Link Generated !</b>__\n\n"
-        "📄 <b>File Name :</b>\n"
-        f"<code>{file_name}</code>\n\n"
-        "📦 <b>File size :</b> <code>{}</code>\n\n"
-        "🔗 <b>Download Link:</b> <a href='{}'>{}</a>\n\n"
+        f"‣ <b>File Name : </b>{file_name}\n\n"
+        "‣ <b>File size : </b> <code>{}</code>\n\n"
+        "➙ <b>Download : </b> <a href='{}'>{}</a>\n\n"
         "⏰ <b>Link Expires In 24hrs</b>\n\n"
-        "__📌 <b>Note :-</b> Use FDM (For PC) or FDM (For Mobile) To Download With Maximum Speed__"
+        "<i>📌 <b>Note :- Use FDM (For PC) or FDM (For Mobile) To Download With Maximum Speed</b></i>"
     ).format(size_str, stream_link, stream_link)
 
     try:
