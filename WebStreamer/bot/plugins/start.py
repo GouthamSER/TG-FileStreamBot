@@ -71,7 +71,7 @@ async def start(bot, m: Message):
 
     await m.reply(
         f"👋 Hi {m.from_user.mention(style='md')}!\n\n"
-        "Send me any file and I'll give you an instant stream/download link. 🔗",
+        "**Send me any file and I'll give you an instant stream/download link. 🔗**",
     )
 
 
@@ -83,7 +83,7 @@ async def fsub_recheck(bot, cb):
             await add_user(uid, cb.from_user.first_name or "", cb.from_user.username or "")
         await cb.message.edit_text(
             f"✅ Thanks for joining, {cb.from_user.mention(style='md')}!\n\n"
-            "Now send me any file to get a stream link. 🔗"
+            "__Now send me any file to get a stream link. 🔗__"
         )
     else:
         await cb.answer("You haven't joined yet!", show_alert=True)
