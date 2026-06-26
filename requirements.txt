@@ -1,4 +1,4 @@
-pyrotgfork
+pyrofork
 tgcrypto
 aiohttp[speedups]
 pytgcrypto
