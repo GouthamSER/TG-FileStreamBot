@@ -1,4 +1,6 @@
+import re
 import hashlib
+import logging
 from pyrogram import Client
 from pyrogram.types import Message
 from pyrogram.file_id import FileId
@@ -6,6 +8,8 @@ from typing import Any, Optional, Union
 from pyrogram.raw.types.messages import Messages
 from WebStreamer.server.exceptions import FIleNotFound
 from datetime import datetime
+
+logger = logging.getLogger("file_properties")
 
 
 async def parse_file_id(message: "Message") -> Optional[FileId]:
@@ -21,14 +25,17 @@ async def parse_file_unique_id(message: "Messages") -> Optional[str]:
 async def get_file_ids(client: Client, chat_id: int, message_id: int) -> Optional[FileId]:
     message = await client.get_messages(chat_id, message_id)
     if not message or message.empty:
+        logger.warning(f"[404 cause] message_id={message_id} chat_id={chat_id}: message missing/empty (message={message!r}, empty={getattr(message, 'empty', None)})")
         raise FIleNotFound
     media = get_media_from_message(message)
     if not media:
         # message exists but has no media anymore (deleted/service message) -> file gone
+        logger.warning(f"[404 cause] message_id={message_id} chat_id={chat_id}: message exists but has no media (media_type={message.media})")
         raise FIleNotFound
     file_unique_id = await parse_file_unique_id(message)
     file_id = await parse_file_id(message)
     if not file_id:
+        logger.warning(f"[404 cause] message_id={message_id} chat_id={chat_id}: media present but file_id decode failed")
         raise FIleNotFound
     setattr(file_id, "file_size", getattr(media, "file_size", 0) or 0)
     setattr(file_id, "mime_type", getattr(media, "mime_type", "") or "")
@@ -101,4 +108,32 @@ def get_name(media_msg: Union[Message, FileId]) -> str:
         date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         file_name = f"{media_type}-{date}{ext}"
 
-    return file_name
+    return sanitize_filename(file_name)
+
+
+def sanitize_filename(name: str) -> str:
+    """
+    Clean a filename so it doesn't blow up urls/captions with ugly percent-encoding
+    (e.g. %40, %E2%8C%AF) or break HTML parsing:
+      - spaces/other whitespace -> "."
+      - non-ascii / symbol junk (≡, @, #, etc.) stripped out
+      - keeps letters, digits, . _ - [ ] ( )
+      - collapses repeated dots, trims stray leading/trailing . _ -
+    """
+    if not name:
+        return name
+
+    base, _, ext = name.rpartition(".")
+    if not base:
+        # no extension, whole string is the base
+        base, ext = name, ""
+
+    base = re.sub(r"\s+", ".", base)
+    base = re.sub(r"[^A-Za-z0-9._\-\[\]()]", "", base)
+    base = re.sub(r"\.{2,}", ".", base).strip("._-")
+
+    ext = re.sub(r"[^A-Za-z0-9]", "", ext)
+
+    if not base:
+        base = "file"
+    return f"{base}.{ext}" if ext else base
