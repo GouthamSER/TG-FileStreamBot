@@ -30,6 +30,28 @@ def get_size_readable(size: int) -> str:
     return f"{size:.2f} PiB"
 
 
+@StreamBot.on_deleted_messages(filters.chat(Var.BIN_CHANNEL))
+async def bin_channel_delete_handler(_, messages):
+    """
+    Old links keep streaming after you delete the file from BIN_CHANNEL because
+    ByteStreamer caches the resolved file location (access_hash/file_reference)
+    for 30 min and never re-checks the message — it streams straight from that
+    cached location. This evicts the deleted message_id from every cached
+    ByteStreamer instance right away, so the link dies immediately instead of
+    waiting up to 30 min for the cache to clear itself.
+    """
+    from WebStreamer.server.stream_routes import class_cache
+    deleted_ids = [m.id for m in messages]
+    if not deleted_ids:
+        return
+    evicted = 0
+    for streamer in class_cache.values():
+        for mid in deleted_ids:
+            if streamer.cached_file_ids.pop(mid, None) is not None:
+                evicted += 1
+    logger.info(f"Bin channel delete: evicted {evicted} cached entr(y/ies) for message_id(s) {deleted_ids}")
+
+
 @StreamBot.on_message(
     filters.private
     & (
