@@ -60,8 +60,12 @@ async def stream_handler(request: web.Request):
         raise web.HTTPForbidden(text=e.message)
     except FIleNotFound as e:
         raise web.HTTPNotFound(text=e.message)
-    except (AttributeError, BadStatusLine, ConnectionResetError):
+    except (BadStatusLine, ConnectionResetError):
         pass
+    except AttributeError as e:
+        # bin channel message/media is gone but wasn't caught earlier as FIleNotFound
+        logger.warning(f"Treating AttributeError as file not found: {e}")
+        raise web.HTTPNotFound(text="404: File not found")
     except Exception as e:
         logger.critical(str(e), exc_info=True)
         raise web.HTTPInternalServerError(text=str(e))
