@@ -2,6 +2,7 @@
 # Coding : Jyothis Jayanth [@EverythingSuckz]
 
 import logging
+import html
 from pyrogram import filters, errors
 from WebStreamer.vars import Var
 from urllib.parse import quote
@@ -63,7 +64,10 @@ async def media_receive_handler(_, m: Message):
     log_msg = await m.forward(chat_id=Var.BIN_CHANNEL)
     file_hash = get_hash(log_msg, Var.HASH_LENGTH)
     file_name = get_name(m)
-    stream_link = f"{Var.URL}{log_msg.id}/{quote(file_name)}?hash={file_hash}"
+    # safe="" : escape EVERYTHING (incl. literal '/', '#', '?') so a filename
+    # containing those chars can't corrupt the /msgid/filename url path
+    safe_file_name = quote(file_name, safe="")
+    stream_link = f"{Var.URL}{log_msg.id}/{safe_file_name}?hash={file_hash}"
     short_link = f"{Var.URL}{file_hash}{log_msg.id}"
     logger.info(f"Generated link: {stream_link} for {m.from_user.first_name}")
 
@@ -71,13 +75,20 @@ async def media_receive_handler(_, m: Message):
     file_size = getattr(media, "file_size", 0) or 0
     size_str = get_size_readable(file_size) if file_size else "Unknown"
 
+    # escape filename for safe HTML rendering — raw '<', '>', '&' in a filename
+    # would otherwise break Telegram's HTML parser and the whole message would
+    # fail to send ("caption error")
+    safe_caption_name = html.escape(file_name)
+
     reply_text = (
-        f"‣ <b>File Name : </b>{file_name}\n\n"
-        "‣ <b>File size : </b> <code>{}</code>\n\n"
-        "➙ <b>Download : </b> <a href='{}'>{}</a>\n\n"
+        "__<b>Your Link Generated !</b>__\n\n"
+        "📄 <b>File Name :</b>\n"
+        f"<code>{safe_caption_name}</code>\n\n"
+        "📦 <b>File size :</b> <code>{}</code>\n\n"
+        "🔗 <b>Download Link:</b> <a href='{}'>{}</a>\n\n"
         "⏰ <b>Link Expires In 24hrs</b>\n\n"
-        "<i>📌 <b>Note :- Use FDM (For PC) or FDM (For Mobile) To Download With Maximum Speed</b></i>"
-    ).format(size_str, stream_link, stream_link)
+        "__📌 <b>Note :-</b> Use FDM (For PC) or FDM (For Mobile) To Download With Maximum Speed__"
+    ).format(size_str, stream_link, html.escape(stream_link))
 
     try:
         await m.reply_text(
@@ -97,3 +108,15 @@ async def media_receive_handler(_, m: Message):
             quote=True,
             parse_mode=ParseMode.HTML,
         )
+    except Exception as e:
+        # last-resort fallback: if HTML still somehow fails to parse, send
+        # plain text instead of letting the whole reply silently error out
+        logger.warning(f"Failed sending HTML caption, falling back to plain text: {e}")
+        plain_text = (
+            "Your Link Generated !\n\n"
+            f"File Name :\n{file_name}\n\n"
+            f"File size : {size_str}\n\n"
+            f"Download Link: {stream_link}\n\n"
+            "Link Expires In 24hrs"
+        )
+        await m.reply_text(text=plain_text, quote=True)
