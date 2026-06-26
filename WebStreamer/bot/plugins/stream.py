@@ -81,13 +81,13 @@ async def media_receive_handler(_, m: Message):
     safe_caption_name = html.escape(file_name)
 
     reply_text = (
-        "__<b>Your Link Generated !</b>__\n\n"
-        "📄 <b>File Name :</b>\n"
+        "<i><b>✅ Your Link Is Ready!</b></i>\n\n"
+        "📄 <b>File Name:</b>\n"
         f"<code>{safe_caption_name}</code>\n\n"
-        "📦 <b>File size :</b> <code>{}</code>\n\n"
-        "🔗 <b>Download Link:</b> <a href='{}'>{}</a>\n\n"
-        "⏰ <b>Link Expires In 24hrs</b>\n\n"
-        "__📌 <b>Note :-</b> Use FDM (For PC) or FDM (For Mobile) To Download With Maximum Speed__"
+        "📦 <b>File Size:</b> <code>{}</code>\n\n"
+        "🔗 <b>Download Link:</b>\n<a href='{}'>{}</a>\n\n"
+        "⏰ <i>Link expires in 24 hours</i>\n\n"
+        "<i>📌 Note: Use FDM (PC) or FDM (Mobile) for maximum download speed.</i>"
     ).format(size_str, stream_link, html.escape(stream_link))
 
     try:
