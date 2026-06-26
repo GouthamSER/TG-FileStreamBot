@@ -40,6 +40,7 @@ async def root_route_handler(_):
 
 @routes.get(r"/{path:\S+}", allow_head=True)
 async def stream_handler(request: web.Request):
+    # --- step 1: parse the url path itself ---
     try:
         path = request.match_info["path"]
         url_file_name = None
@@ -51,10 +52,22 @@ async def stream_handler(request: web.Request):
         else:
             # long link: /msgid/filename?hash=...
             parts = path.split("/", 1)
-            message_id = int(re.search(r"(\d+)", parts[0]).group(1))
+            id_match = re.search(r"(\d+)", parts[0])
+            if not id_match:
+                # not a real generated link (probe/crawler/favicon etc) -> bad request, not "file not found"
+                raise web.HTTPBadRequest(text="400: Bad request, invalid link")
+            message_id = int(id_match.group(1))
             secure_hash = request.rel_url.query.get("hash")
             if len(parts) > 1 and parts[1]:
                 url_file_name = unquote(parts[1])
+    except web.HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Bad/malformed url path '{request.path}': {e}")
+        raise web.HTTPBadRequest(text="400: Bad request, invalid link")
+
+    # --- step 2: actually fetch/stream the file ---
+    try:
         return await media_streamer(request, message_id, secure_hash, url_file_name)
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)
@@ -64,7 +77,7 @@ async def stream_handler(request: web.Request):
         pass
     except AttributeError as e:
         # bin channel message/media is gone but wasn't caught earlier as FIleNotFound
-        logger.warning(f"Treating AttributeError as file not found: {e}")
+        logger.warning(f"Treating AttributeError as file not found for message_id={message_id}: {e}")
         raise web.HTTPNotFound(text="404: File not found")
     except Exception as e:
         logger.critical(str(e), exc_info=True)
