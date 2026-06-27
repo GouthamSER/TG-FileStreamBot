@@ -42,7 +42,7 @@ def fsub_keyboard():
     ]])
 
 
-@StreamBot.on_message(filters.command(["start", "help"]) & filters.private)
+@StreamBot.on_message(filters.command("start") & filters.private)
 async def start(bot, m: Message):
     uid = m.from_user.id
 
@@ -70,8 +70,57 @@ async def start(bot, m: Message):
         await add_user(uid, m.from_user.first_name or "", m.from_user.username or "")
 
     await m.reply(
-        f"👋 Hi {m.from_user.mention(style='md')}!\n\n"
-        "**Send me any file and I'll give you an instant stream/download link. 🔗**",
+        f"Hello, {m.from_user.mention(style='md')}! \n\n"
+        "I'm **File to link** ⚡\n"
+        "I generate direct download and streaming links for your files.\n\n"
+        "**How to use:**\n"
+        "> Send any file to me for private links.\n"
+        "» Use /help for all commands and detailed information.\n\n"
+        "🚀 Send a file to begin!"
+    )
+
+
+@StreamBot.on_message(filters.command("help") & filters.private)
+async def help_cmd(bot, m: Message):
+    uid = m.from_user.id
+
+    # ALLOWED_USERS gate
+    if Var.ALLOWED_USERS and not (
+        (str(uid) in Var.ALLOWED_USERS) or
+        (m.from_user.username in Var.ALLOWED_USERS)
+    ):
+        return await m.reply(
+            "You are not in the allowed list of users who can use me. "
+            "Check <a href='https://github.com/GouthamSER/TG-FileStreamBot#optional-vars'>this link</a> for more info.",
+            disable_web_page_preview=True, quote=True
+        )
+
+    # FSub gate
+    if not await check_fsub(bot, uid):
+        return await m.reply(
+            "📢 <b>Join our channel first to use this bot!</b>\n\nAfter joining, tap ✅ Joined below.",
+            reply_markup=fsub_keyboard(),
+            quote=True,
+        )
+
+    # Save user
+    if _db_enabled and add_user:
+        await add_user(uid, m.from_user.first_name or "", cb.from_user.username or "")
+
+    await m.reply(
+        "🌟 **About File to link** ℹ️\n\n"
+        "I'm your go-to bot for instant download & streaming! ⚡\n\n"
+        "🚀 **Key Features:**\n"
+        "<blockquote>• **Instant Links:** Get your links within seconds.\n"
+        "• **Online Streaming:** Watch videos or listen to audio directly (for supported formats).\n"
+        "• **Universal File Support:** Handles documents, videos, audio, photos, and more.\n"
+        "• **High-Speed Access:** Optimized for fast link generation and file access.\n"
+        "• **Secure & Reliable:** Your files are handled with care during processing.\n"
+        "• **User-Friendly Interface:** Designed for ease of use on any device.\n"
+        "• **Efficient Processing:** Built for speed and reliability.\n"
+        "• **Batch Mode:** Process multiple files at once in groups using /link.\n"
+        "• **Versatile Usage:** Works in private chats, groups, and channels (with admin setup).\n\n"
+        "💖 If you find me useful, please consider sharing me with your friends!</blockquote>"
     )
 
 
