@@ -105,7 +105,7 @@ async def help_cmd(bot, m: Message):
 
     # Save user
     if _db_enabled and add_user:
-        await add_user(uid, m.from_user.first_name or "", cb.from_user.username or "")
+        await add_user(uid, m.from_user.first_name or "", m.from_user.username or "")
 
     await m.reply(
         "🌟 **About File to link** ℹ️\n\n"
