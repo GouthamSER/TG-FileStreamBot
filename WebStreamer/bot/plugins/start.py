@@ -118,8 +118,7 @@ async def help_cmd(bot, m: Message):
         "• **Secure & Reliable:** Your files are handled with care during processing.\n"
         "• **User-Friendly Interface:** Designed for ease of use on any device.\n"
         "• **Efficient Processing:** Built for speed and reliability.\n"
-        "• **Batch Mode:** Process multiple files at once in groups using /link.\n"
-        "• **Versatile Usage:** Works in private chats, groups, and channels (with admin setup).\n\n"
+        "• **Versatile Usage:** Works in private chats (with admin setup).\n\n"
         "💖 If you find me useful, please consider sharing me with your friends!</blockquote>"
     )
 
