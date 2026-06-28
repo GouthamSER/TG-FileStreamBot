@@ -78,6 +78,7 @@
 | ✅ | Optional MongoDB user tracking |
 | ✅ | Optional Force-Subscribe (FSub) gating |
 | ✅ | Built-in `/stats` and `/broadcast` for the bot owner |
+| ✅ | `uvloop`-powered event loop for faster I/O |
 
 <hr>
 
@@ -149,6 +150,8 @@ sudo docker compose up -d
 3. `Procfile` → `web: python3 -m WebStreamer`
 4. `.python-version` → `3.10`
 5. Deploy 🚀
+
+> ⚠️ **Koyeb (Dockerfile deploy):** container `EXPOSE`s `8080`. In Koyeb's service settings, set **Port → 8080** (and protocol HTTP) to match, or set `PORT=8080` env var if you change the exposed port. Health checks hit `/`.
 
 <hr>
 
