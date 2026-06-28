@@ -26,6 +26,13 @@ logging.getLogger("aiohttp.web").setLevel(logging.DEBUG if Var.DEBUG else loggin
 
 server = web.AppRunner(web_server())
 
+try:
+    import uvloop
+    uvloop.install()
+    logging.info("uvloop installed — using fast event loop")
+except ImportError:
+    logging.info("uvloop not available, using default asyncio event loop")
+
 loop = asyncio.get_event_loop()
 
 
