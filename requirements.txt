@@ -1,6 +1,5 @@
 pyrofork
 tgcrypto
 aiohttp[speedups]
-uvloop
 python-dotenv
 motor

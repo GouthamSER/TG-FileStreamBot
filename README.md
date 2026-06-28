@@ -78,7 +78,6 @@
 | ✅ | Optional MongoDB user tracking |
 | ✅ | Optional Force-Subscribe (FSub) gating |
 | ✅ | Built-in `/stats` and `/broadcast` for the bot owner |
-| ✅ | `uvloop`-powered event loop for faster I/O |
 
 <hr>
 
