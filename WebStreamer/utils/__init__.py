@@ -1,5 +1,5 @@
 # This file is a part of TG-FileStreamBot
-# Coding : Jyothis Jayanth [@EverythingSuckz]
+# Coding : Goutham Josh [@GouthamSER]
 
 from .keepalive import ping_server
 from .time_format import get_readable_time
