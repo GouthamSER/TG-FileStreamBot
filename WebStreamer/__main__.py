@@ -4,6 +4,16 @@
 import sys
 import asyncio
 import logging
+
+try:
+    import uvloop
+    uvloop.install()
+except ImportError:
+    uvloop = None
+
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
 from .vars import Var
 from aiohttp import web
 from pyrogram import idle
@@ -24,17 +34,9 @@ logging.getLogger("aiohttp").setLevel(logging.DEBUG if Var.DEBUG else logging.ER
 logging.getLogger("pyrogram").setLevel(logging.INFO if Var.DEBUG else logging.ERROR)
 logging.getLogger("aiohttp.web").setLevel(logging.DEBUG if Var.DEBUG else logging.ERROR)
 
+logging.info("uvloop installed — using fast event loop" if uvloop else "uvloop not available, using default asyncio event loop")
+
 server = web.AppRunner(web_server())
-
-try:
-    import uvloop
-    uvloop.install()
-    logging.info("uvloop installed — using fast event loop")
-except ImportError:
-    logging.info("uvloop not available, using default asyncio event loop")
-
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
 
 
 
