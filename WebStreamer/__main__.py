@@ -4,10 +4,6 @@
 import sys
 import asyncio
 import logging
-
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
 from .vars import Var
 from aiohttp import web
 from pyrogram import idle
@@ -29,6 +25,8 @@ logging.getLogger("pyrogram").setLevel(logging.INFO if Var.DEBUG else logging.ER
 logging.getLogger("aiohttp.web").setLevel(logging.DEBUG if Var.DEBUG else logging.ERROR)
 
 server = web.AppRunner(web_server())
+
+loop = asyncio.get_event_loop()
 
 
 
