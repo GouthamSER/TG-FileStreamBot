@@ -221,6 +221,14 @@ class ByteStreamer:
                     break
         except (TimeoutError, AttributeError):
             pass
+        except (OSError, ConnectionError) as e:
+            # media_session TCP link to Telegram DC died (network blip).
+            # Evict dead session from cache so next request builds a fresh
+            # one instead of reusing+retrying same broken connection forever.
+            logger.warning(f"Media session DC {file_id.dc_id} dropped: {e}. Evicting cached session.")
+            dead = client.media_sessions.pop(file_id.dc_id, None)
+            if dead is not None:
+                asyncio.create_task(dead.stop())
         finally:
             logger.debug(f"Finished yielding file with {current_part} parts.")
             work_loads[index] -= 1
