@@ -84,6 +84,22 @@ async def media_receive_handler(_, m: Message):
         await add_user(m.from_user.id, m.from_user.first_name or "", m.from_user.username or "")
 
     log_msg = await m.forward(chat_id=Var.BIN_CHANNEL)
+
+    # tag forwarded file with sender info (name, id, username) in bin channel
+    sender_name = html.escape(m.from_user.first_name or "Unknown")
+    sender_id = m.from_user.id
+    sender_username = f"@{m.from_user.username}" if m.from_user.username else "N/A"
+    try:
+        await log_msg.reply_text(
+            f"👤 <b>From:</b> <a href='tg://user?id={sender_id}'>{sender_name}</a>\n"
+            f"🆔 <b>ID:</b> <code>{sender_id}</code>\n"
+            f"🔗 <b>Username:</b> {sender_username}",
+            parse_mode=ParseMode.HTML,
+            quote=True,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to send sender info to bin channel: {e}")
+
     file_hash = get_hash(log_msg, Var.HASH_LENGTH)
     file_name = get_name(m)
     # safe="" : escape EVERYTHING (incl. literal '/', '#', '?') so a filename
