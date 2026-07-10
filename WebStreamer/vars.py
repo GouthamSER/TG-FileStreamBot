@@ -14,7 +14,7 @@ class Var(object):
     API_HASH = str(environ.get("API_HASH"))
     BOT_TOKEN = str(environ.get("BOT_TOKEN"))
     SLEEP_THRESHOLD = int(environ.get("SLEEP_THRESHOLD", "60"))  # 1 minte
-    WORKERS = int(environ.get("WORKERS", "6"))  # 6 workers = 6 commands at once
+    WORKERS = int(environ.get("WORKERS", "16"))  # 16 workers = 16 commands at once
     _bin_channel_raw = environ.get("BIN_CHANNEL")
     if not _bin_channel_raw:
         sys.exit("BIN_CHANNEL is required — set it to your log/bin channel ID")
