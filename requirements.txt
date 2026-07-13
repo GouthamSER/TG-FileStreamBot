@@ -1,4 +1,4 @@
-pyrofork
+pyroblack==2.8.6
 tgcrypto
 aiohttp[speedups]
 python-dotenv
