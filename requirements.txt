@@ -1,5 +1,5 @@
-pyroblack==2.8.6
-tgcrypto
+pyroblack
+tgcrypto-pyrofork
 aiohttp[speedups]
 python-dotenv
 motor
