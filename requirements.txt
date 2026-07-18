@@ -3,3 +3,4 @@ tgcrypto-pyrofork
 aiohttp[speedups]
 python-dotenv
 motor
+psutil
