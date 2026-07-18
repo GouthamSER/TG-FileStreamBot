@@ -19,19 +19,6 @@ def owner_filter(_, __, m: Message):
     return m.from_user and m.from_user.id == Var.OWNER_ID
 
 
-@StreamBot.on_message(filters.command("stats") & filters.private & filters.create(owner_filter))
-async def stats_cmd(_, m: Message):
-    if not _db_enabled:
-        return await m.reply("⚠️ <b>DATABASE_URI not set.</b> Stats unavailable.", quote=True)
-
-    users = await get_user_count()
-    text = (
-        "📊 <b>Bot Statistics</b>\n\n"
-        f"👥 <b>Total Users:</b> <code>{users}</code>"
-    )
-    await m.reply(text, quote=True)
-
-
 @StreamBot.on_message(filters.command("broadcast") & filters.private & filters.create(owner_filter))
 async def broadcast_cmd(bot, m: Message):
     if not _db_enabled:
