@@ -1,5 +1,5 @@
 pyrotgfork
-tgcrypto-pyrofork
+tgcrypto
 aiohttp[speedups]
 python-dotenv
 motor
