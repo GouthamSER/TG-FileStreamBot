@@ -71,7 +71,7 @@ async def start(bot, m: Message):
 
     await m.reply(
         f"Hello, {m.from_user.mention(style='md')}! \n\n"
-        "I'm **File to link** ⚡\n"
+        "I'm **File ² link** ⚡\n"
         "I generate direct download and streaming links for your files.\n\n"
         "**How to use:**\n"
         "> Send any file to me for private links.\n"
