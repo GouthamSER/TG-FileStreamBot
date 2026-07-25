@@ -1,4 +1,4 @@
-pyrotgfork
+wzgram[fast]
 tgcrypto
 aiohttp[speedups]
 python-dotenv
