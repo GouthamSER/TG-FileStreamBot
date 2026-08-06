@@ -3,6 +3,7 @@
 
 import asyncio
 import logging
+import re
 from os import environ
 from ..vars import Var
 from pyrogram import Client
@@ -10,17 +11,19 @@ from . import multi_clients, work_loads, sessions_dir, StreamBot
 
 logger = logging.getLogger("multi_client")
 
+MULTI_TOKEN_RE = re.compile(r"^MULTI_TOKEN(\d+)$")
+
 async def initialize_clients():
     multi_clients[0] = StreamBot
     work_loads[0] = 0
-    all_tokens = dict(
-        (c + 1, t)
-        for c, (_, t) in enumerate(
-            filter(
-                lambda n: n[0].startswith("MULTI_TOKEN"), sorted(environ.items())
-            )
-        )
-    )
+
+    matched = []
+    for name, token in environ.items():
+        m = MULTI_TOKEN_RE.match(name)
+        if m:
+            matched.append((int(m.group(1)), token))
+    matched.sort(key=lambda x: x[0])  # numeric sort, not string sort
+    all_tokens = {c + 1: t for c, (_, t) in enumerate(matched)}
     if not all_tokens:
         logger.info("No additional clients found, using default client")
         return
