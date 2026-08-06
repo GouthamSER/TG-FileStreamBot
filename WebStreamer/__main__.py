@@ -11,6 +11,7 @@ from WebStreamer import utils
 from WebStreamer import StreamBot
 from WebStreamer.server import web_server
 from WebStreamer.bot.clients import initialize_clients
+from WebStreamer.bot import multi_clients
 
 
 logging.basicConfig(
@@ -51,6 +52,13 @@ async def start_services():
 
 async def cleanup():
     await server.cleanup()
+    for client_id, client in multi_clients.items():
+        if client_id == 0:
+            continue
+        try:
+            await client.stop()
+        except Exception:
+            logging.error(f"Error stopping client {client_id}", exc_info=True)
     await StreamBot.stop()
 
 if __name__ == "__main__":
