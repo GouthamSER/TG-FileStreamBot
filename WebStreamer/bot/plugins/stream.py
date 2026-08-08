@@ -124,7 +124,7 @@ async def media_receive_handler(_, m: Message):
         f"<code>{safe_caption_name}</code>\n\n"
         "📦 <b>File Size:</b> <code>{}</code>\n\n"
         "🔗 <b>Download Link:</b>\n<a href=`{}`>{}</a>\n\n"
-        "⏰ <i>Link expires in 24 hours</i>\n\n"
+        "⏰ <i>Link expires in 4 Days</i>\n\n"
         "<u><i>📌 Note: Use FDM (PC) or FDM (Mobile) for maximum download speed.</i></u>"
     ).format(size_str, stream_link, html.escape(stream_link))
 
