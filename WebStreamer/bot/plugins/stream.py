@@ -102,9 +102,7 @@ async def media_receive_handler(_, m: Message):
 
     file_hash = get_hash(log_msg, Var.HASH_LENGTH)
     file_name = get_name(m)
-    # safe="" : escape EVERYTHING (incl. literal '/', '#', '?') so a filename
-    # containing those chars can't corrupt the /msgid/filename url path
-    safe_file_name = quote(file_name, safe="")
+
     stream_link = f"{Var.URL}{log_msg.id}/{safe_file_name}?hash={file_hash}"
     short_link = f"{Var.URL}{file_hash}{log_msg.id}"
     logger.info(f"Generated link: {stream_link} for {m.from_user.first_name}")
@@ -113,23 +111,11 @@ async def media_receive_handler(_, m: Message):
     file_size = getattr(media, "file_size", 0) or 0
     size_str = get_size_readable(file_size) if file_size else "Unknown"
 
-    # escape filename for safe HTML rendering — raw '<', '>', '&' in a filename
-    # would otherwise break Telegram's HTML parser and the whole message would
-    # fail to send ("caption error")
-    safe_caption_name = html.escape(file_name)
 
-    # full original caption (if user sent one with the file) — Telegram allows
-    # up to 1024 chars, m.caption already gives the complete text, no truncation
-    caption_block = ""
-    if m.caption:
-        safe_full_caption = html.escape(m.caption.html if hasattr(m.caption, "html") else str(m.caption))
-        caption_block = f"📝 <b>Caption:</b>\n{safe_full_caption}\n\n"
 
     reply_text = (
         "<i><b>✅ Your Link Is Ready!</b></i>\n\n"
         "📄 <b>File Name:</b>\n"
-        f"<code>{safe_caption_name}</code>\n\n"
-        f"{caption_block}"
         "📦 <b>File Size:</b> <code>{}</code>\n\n"
         "🔗 <b>Download Link:</b>\n<a href=`{}`>{}</a>\n\n"
         "⏰ <i>Link expires in 4 Days</i>\n\n"
