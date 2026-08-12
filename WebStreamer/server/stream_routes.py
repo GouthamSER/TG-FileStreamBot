@@ -151,6 +151,11 @@ async def media_streamer(request: web.Request, message_id: int, secure_hash: str
 
     # forced attachment for all types — no more inline play in browser
 
+    # Some download managers (FDM, older IDM builds) don't parse the RFC5987
+    # filename*= form and grab a truncated/partial name instead — sending a
+    # plain ascii filename="" fallback alongside filename*= fixes that.
+    ascii_fallback = file_name.encode("ascii", "ignore").decode() or "file"
+
     return web.Response(
         status=206 if range_header else 200,
         body=body,
@@ -158,7 +163,7 @@ async def media_streamer(request: web.Request, message_id: int, secure_hash: str
             "Content-Type": f"{mime_type}",
             "Content-Range": f"bytes {from_bytes}-{until_bytes}/{file_size}",
             "Content-Length": str(req_length),
-            "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(file_name)}",
+            "Content-Disposition": f'{disposition}; filename="{ascii_fallback}"; filename*=UTF-8\'\'{quote(file_name)}',
             "Accept-Ranges": "bytes",
         },
     )
