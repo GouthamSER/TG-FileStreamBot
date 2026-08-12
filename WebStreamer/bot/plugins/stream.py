@@ -118,10 +118,18 @@ async def media_receive_handler(_, m: Message):
     # fail to send ("caption error")
     safe_caption_name = html.escape(file_name)
 
+    # full original caption (if user sent one with the file) — Telegram allows
+    # up to 1024 chars, m.caption already gives the complete text, no truncation
+    caption_block = ""
+    if m.caption:
+        safe_full_caption = html.escape(m.caption.html if hasattr(m.caption, "html") else str(m.caption))
+        caption_block = f"📝 <b>Caption:</b>\n{safe_full_caption}\n\n"
+
     reply_text = (
         "<i><b>✅ Your Link Is Ready!</b></i>\n\n"
         "📄 <b>File Name:</b>\n"
         f"<code>{safe_caption_name}</code>\n\n"
+        f"{caption_block}"
         "📦 <b>File Size:</b> <code>{}</code>\n\n"
         "🔗 <b>Download Link:</b>\n<a href=`{}`>{}</a>\n\n"
         "⏰ <i>Link expires in 4 Days</i>\n\n"
