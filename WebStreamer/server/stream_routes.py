@@ -45,7 +45,12 @@ async def stream_handler(request: web.Request):
         path = request.match_info["path"]
         url_file_name = None
         match = re.search(r"^([0-9a-f]{%s})(\d+)$" % (Var.HASH_LENGTH), path)
-        if match:
+        dl_match = re.search(r"^dl/(\d+)([0-9a-f]{%s})$" % (Var.HASH_LENGTH), path)
+        if dl_match:
+            # dl link: /dl/msgid+hash — no filename in URL
+            message_id = int(dl_match.group(1))
+            secure_hash = dl_match.group(2)
+        elif match:
             # short link: /hash+msgid  — no filename in URL
             secure_hash = match.group(1)
             message_id = int(match.group(2))
