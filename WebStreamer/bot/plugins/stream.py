@@ -5,7 +5,6 @@ import logging
 import html
 from pyrogram import filters, errors
 from WebStreamer.vars import Var
-from urllib.parse import quote
 from WebStreamer.bot import StreamBot, logger
 from WebStreamer.utils import get_hash, get_name
 from WebStreamer.utils.file_properties import get_media_from_message
@@ -102,11 +101,7 @@ async def media_receive_handler(_, m: Message):
 
     file_hash = get_hash(log_msg, Var.HASH_LENGTH)
     file_name = get_name(m)
-    # safe="" : escape EVERYTHING (incl. literal '/', '#', '?') so a filename
-    # containing those chars can't corrupt the /msgid/filename url path
-    safe_file_name = quote(file_name, safe="")
-    stream_link = f"{Var.URL}{log_msg.id}/{safe_file_name}?hash={file_hash}"
-    short_link = f"{Var.URL}{file_hash}{log_msg.id}"
+    stream_link = f"{Var.URL}dl/{log_msg.id}{file_hash}"
     logger.info(f"Generated link: {stream_link} for {m.from_user.first_name}")
 
     media = get_media_from_message(m)
@@ -124,7 +119,7 @@ async def media_receive_handler(_, m: Message):
         f"<code>{safe_caption_name}</code>\n\n"
         "📦 <b>File Size:</b> <code>{}</code>\n\n"
         "🔗 <b>Download Link:</b>\n<a href=`{}`>{}</a>\n\n"
-        "⏰ <i>Link expires in 4 Days</i>\n\n"
+        "⏰ <i>Link expires in 24 hours</i>\n\n"
         "<u><i>📌 Note: Use FDM (PC) or FDM (Mobile) for maximum download speed.</i></u>"
     ).format(size_str, stream_link, html.escape(stream_link))
 
