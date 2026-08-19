@@ -1,0 +1,33 @@
+{
+  "name": "TG-FileStreamBot",
+  "description": "Turn any Telegram file into an instant direct download / streaming link.",
+  "repository": "https://github.com/GouthamSER/TG-FileStreamBot",
+  "logo": "https://telegra.ph/file/01385a9f4cf0419682b87.png",
+  "keywords": ["telegram", "bot", "file-stream", "pyrogram"],
+  "stack": "container",
+  "env": {
+    "API_ID": { "description": "Telegram API ID from my.telegram.org", "required": true },
+    "API_HASH": { "description": "Telegram API Hash from my.telegram.org", "required": true },
+    "BOT_TOKEN": { "description": "Bot token from @BotFather", "required": true },
+    "BIN_CHANNEL": { "description": "Channel ID where the bot forwards & stores files", "required": true },
+    "FQDN": { "description": "Your domain name, used for link generation (leave empty to auto-use the heroku app URL)", "required": false },
+    "HAS_SSL": { "description": "Set True to generate https:// links", "value": "True", "required": false },
+    "NO_PORT": { "description": "Set True to hide the port from generated links", "value": "True", "required": false },
+    "PORT": { "description": "Port the web server listens on", "value": "8080", "required": false },
+    "ALLOWED_USERS": { "description": "Comma-separated Telegram user IDs/usernames allowed to use the bot. Leave empty for public access", "required": false },
+    "HASH_LENGTH": { "description": "Length of the hash in generated URLs (6-63)", "value": "6", "required": false },
+    "SLEEP_THRESHOLD": { "description": "Seconds to sleep on flood wait before retrying", "value": "60", "required": false },
+    "WORKERS": { "description": "Max concurrent workers for handling updates", "value": "6", "required": false },
+    "KEEP_ALIVE": { "description": "Ping self every PING_INTERVAL seconds — handy for free tiers", "value": "False", "required": false },
+    "PING_INTERVAL": { "description": "Ping interval in seconds", "value": "1200", "required": false },
+    "USE_SESSION_FILE": { "description": "Use session files instead of in-memory SQLite (keep False on Heroku/ephemeral disk)", "value": "False", "required": false },
+    "DATABASE_URI": { "description": "MongoDB connection string. Leave empty to disable DB features", "required": false },
+    "DATABASE_NAME": { "description": "Database name", "value": "FileStreamBot", "required": false },
+    "OWNER_ID": { "description": "Your Telegram user ID — required for /stats and /broadcast", "required": false },
+    "FSUB_CHANNEL": { "description": "Channel username/ID users must join before using the bot. Leave empty to disable", "required": false },
+    "DEBUG": { "description": "Enable debug logging", "value": "False", "required": false }
+  },
+  "formation": {
+    "web": { "quantity": 1 }
+  }
+}
