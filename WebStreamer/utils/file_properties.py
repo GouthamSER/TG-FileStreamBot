@@ -76,6 +76,33 @@ def get_name(media_msg: Union[Message, FileId]) -> str:
     if isinstance(media_msg, Message):
         media = get_media_from_message(media_msg)
         file_name = getattr(media, "file_name", "") or ""
+        if not file_name and getattr(media_msg, "caption", None):
+            # compressed video/photo sends strip file_name entirely — Telegram
+            # only preserves it when sent as Document/File. caption's first
+            # line usually holds the real name, so use it before falling
+            # back to a generic "video-2026-08-19..." placeholder.
+            first_line = str(media_msg.caption).strip().splitlines()[0].strip()
+            if first_line:
+                file_name = first_line
+                # caption text often has no real "." extension (people type
+                # "... Atmos mkv" instead of "...Atmos.mkv") — attach one
+                # from mime_type so the downloaded file still plays properly.
+                if not re.search(r"\.[A-Za-z0-9]{2,4}$", file_name):
+                    mime_type = getattr(media, "mime_type", "") or getattr(media_msg, "mime_type", "") or ""
+                    ext = ""
+                    if mime_type:
+                        import mimetypes
+                        ext = mimetypes.guess_extension(mime_type) or ""
+                        ext = {".jpe": ".jpg", ".jpeg": ".jpg", ".jfif": ".jpg"}.get(ext, ext)
+                    if not ext:
+                        media_type = media_msg.media.value if media_msg.media else "file"
+                        ext = {
+                            "photo": ".jpg", "audio": ".mp3", "voice": ".ogg",
+                            "video": ".mp4", "animation": ".mp4", "video_note": ".mp4",
+                            "sticker": ".webp",
+                        }.get(media_type, "")
+                    if ext:
+                        file_name = f"{file_name}{ext}"
 
     elif isinstance(media_msg, FileId):
         file_name = getattr(media_msg, "file_name", "") or ""
