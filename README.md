@@ -144,6 +144,19 @@ sudo docker compose up -d
 
 ### Deploy on Koyeb / Heroku
 
+<p>
+  <a href="https://heroku.com/deploy?template=https://github.com/GouthamSER/TG-FileStreamBot">
+    <img src="https://www.herokucdn.com/deploy/button.svg" alt="Deploy to Heroku">
+  </a>
+  &nbsp;
+  <a href="https://app.koyeb.com/deploy?type=git&repository=github.com/GouthamSER/TG-FileStreamBot&branch=main&builder=dockerfile">
+    <img src="https://www.koyeb.com/static/images/deploy/button.svg" alt="Deploy to Koyeb">
+  </a>
+</p>
+
+**One-click:** click a button above, fill in the env vars in the platform's UI, deploy 🚀
+
+**Manual:**
 1. Fork [this repo](https://github.com/GouthamSER/TG-FileStreamBot)
 2. Set all env vars in the platform dashboard
 3. `Procfile` → `web: python3 -m WebStreamer`
@@ -151,6 +164,8 @@ sudo docker compose up -d
 5. Deploy 🚀
 
 > ⚠️ **Koyeb (Dockerfile deploy):** container `EXPOSE`s `8080`. In Koyeb's service settings, set **Port → 8080** (and protocol HTTP) to match, or set `PORT=8080` env var if you change the exposed port. Health checks hit `/`.
+
+> ⚠️ **Heroku (container deploy):** the button above uses `heroku.yml` + `Dockerfile` (`stack: container`), matching `app.json`. Fill mandatory vars (`API_ID`, `API_HASH`, `BOT_TOKEN`, `BIN_CHANNEL`) on the deploy form; everything else has a sane default.
 
 <hr>
 
