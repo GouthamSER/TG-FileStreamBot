@@ -101,7 +101,8 @@ async def media_receive_handler(_, m: Message):
 
     file_hash = get_hash(log_msg, Var.HASH_LENGTH)
     file_name = get_name(m)
-    stream_link = f"{Var.URL}dl/{log_msg.id}{file_hash}"
+    stream_link = f"{Var.URL}{log_msg.id}/{safe_file_name}?hash={file_hash}"
+    dl_link = f"{Var.URL}dl/{log_msg.id}{file_hash}"
     logger.info(f"Generated link: {stream_link} for {m.from_user.first_name}")
 
     media = get_media_from_message(m)
