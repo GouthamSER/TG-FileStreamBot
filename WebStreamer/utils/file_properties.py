@@ -132,35 +132,24 @@ def get_name(media_msg: Union[Message, FileId]) -> str:
             }
             ext = formats.get(media_type, "")
 
-        date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        file_name = f"{media_type}-{date}{ext}"
+        # stable per-file stamp: a timestamp would give every request (and every
+        # resume) a different filename, which confuses download managers.
+        stamp = getattr(media_msg, "unique_id", None) or datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        file_name = f"{media_type}-{stamp}{ext}"
 
     return sanitize_filename(file_name)
 
 
 def sanitize_filename(name: str) -> str:
     """
-    Clean a filename so it doesn't blow up urls/captions with ugly percent-encoding
-    (e.g. %40, %E2%8C%AF) or break HTML parsing:
-      - spaces/other whitespace -> "."
-      - non-ascii / symbol junk (≡, @, #, etc.) stripped out
-      - keeps letters, digits, . _ - [ ] ( )
-      - collapses repeated dots, trims stray leading/trailing . _ -
+    Keep the filename EXACTLY as the user sent it (spaces, unicode, symbols,
+    full length). Only what can break a download is touched:
+      - path separators "/" and "\\" -> "_" (no directory tricks)
+      - control chars (incl. newlines, NUL) removed
+      - surrounding whitespace trimmed
     """
     if not name:
         return name
-
-    base, _, ext = name.rpartition(".")
-    if not base:
-        # no extension, whole string is the base
-        base, ext = name, ""
-
-    base = re.sub(r"\s+", ".", base)
-    base = re.sub(r"[^A-Za-z0-9._\-\[\]()]", "", base)
-    base = re.sub(r"\.{2,}", ".", base).strip("._-")
-
-    ext = re.sub(r"[^A-Za-z0-9]", "", ext)
-
-    if not base:
-        base = "file"
-    return f"{base}.{ext}" if ext else base
+    name = re.sub(r"[\x00-\x1f\x7f]", "", name)
+    name = name.replace("/", "_").replace("\\", "_").strip()
+    return name or "file"

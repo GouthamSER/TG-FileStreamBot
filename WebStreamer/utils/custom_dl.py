@@ -1,17 +1,31 @@
-import math
 import asyncio
+import collections
+import itertools
 import logging
 from WebStreamer import Var
-from typing import Dict, Union
+from typing import Dict, List, Optional, Union
 from WebStreamer.bot import work_loads
-from pyrogram import Client, utils, raw
+from pyrogram import Client, utils, raw, errors
 from .file_properties import get_file_ids
 from pyrogram.session import Session, Auth
 from pyrogram.errors import AuthBytesInvalid
-from WebStreamer.server.exceptions import FIleNotFound
+from WebStreamer.server.exceptions import FIleNotFound, StreamError
 from pyrogram.file_id import FileId, FileType, ThumbnailSource
 
 logger = logging.getLogger("streamer")
+
+
+class _FetchState:
+    """Mutable per-download state shared by the in-flight part fetches."""
+
+    __slots__ = ("file_id", "location", "message_id", "lock")
+
+    def __init__(self, file_id, location, message_id):
+        self.file_id = file_id
+        self.location = location
+        self.message_id = message_id
+        self.lock = asyncio.Lock()
+
 
 class ByteStreamer:
     def __init__(self, client: Client):
@@ -23,7 +37,7 @@ class ByteStreamer:
         
         functions:
             generate_file_properties: returns the properties for a media of a specific message contained in Tuple.
-            generate_media_session: returns the media session for the DC that contains the media file.
+            generate_media_session: returns a media session for the DC that contains the media file.
             yield_file: yield a file from telegram servers for streaming.
             
         This is a modified version of the <https://github.com/eyaadh/megadlbot_oss/blob/master/mega/telegram/utils/custom_download.py>
@@ -33,18 +47,42 @@ class ByteStreamer:
         self.client: Client = client
         self.cached_file_ids: Dict[int, FileId] = {}
         self.session_locks: Dict[int, asyncio.Lock] = {}
-        asyncio.create_task(self.clean_cache())
+        self._pools: Dict[int, List[Session]] = {}
+        self._rr = itertools.count()
+        self._inflight: Dict[int, "asyncio.Future"] = {}
+        # keep a strong reference: the loop only holds weak refs to tasks, an
+        # unreferenced clean_cache task can be garbage collected and die silently.
+        self._clean_task = asyncio.create_task(self.clean_cache())
 
     async def get_file_properties(self, message_id: int) -> FileId:
         """
         Returns the properties of a media of a specific message in a FIleId class.
         if the properties are cached, then it'll return the cached results.
         or it'll generate the properties from the Message ID and cache them.
+        Concurrent callers for the same message share one lookup (download
+        managers open many connections at once; without this each one hits
+        get_messages and trips flood limits).
         """
-        if message_id not in self.cached_file_ids:
-            await self.generate_file_properties(message_id)
-            logger.debug(f"Cached file properties for message with ID {message_id}")
-        return self.cached_file_ids[message_id]
+        cached = self.cached_file_ids.get(message_id)
+        if cached is not None:
+            return cached
+        fut = self._inflight.get(message_id)
+        if fut is None:
+            fut = asyncio.ensure_future(self.generate_file_properties(message_id))
+            self._inflight[message_id] = fut
+
+            def _done(f, mid=message_id):
+                self._inflight.pop(mid, None)
+                if not f.cancelled():
+                    f.exception()  # mark retrieved, waiters still get it via shield
+
+            fut.add_done_callback(_done)
+        return await asyncio.shield(fut)
+
+    async def refresh_file_properties(self, message_id: int) -> FileId:
+        """Drop cached properties and re-read the message (fresh file_reference)."""
+        self.cached_file_ids.pop(message_id, None)
+        return await self.get_file_properties(message_id)
     
     async def generate_file_properties(self, message_id: int) -> FileId:
         """
@@ -60,69 +98,99 @@ class ByteStreamer:
         logger.debug(f"Cached media message with ID {message_id}")
         return self.cached_file_ids[message_id]
 
+    async def _create_media_session(self, client: Client, dc_id: int) -> Session:
+        """Build and start one fresh media session for `dc_id`."""
+        if dc_id != await client.storage.dc_id():
+            media_session = Session(
+                client,
+                dc_id,
+                await Auth(client, dc_id, await client.storage.test_mode()).create(),
+                await client.storage.test_mode(),
+                is_media=True,
+            )
+            await media_session.start()
+
+            for _ in range(6):
+                exported_auth = await client.invoke(
+                    raw.functions.auth.ExportAuthorization(dc_id=dc_id)
+                )
+
+                try:
+                    await media_session.invoke(
+                        raw.functions.auth.ImportAuthorization(
+                            id=exported_auth.id, bytes=exported_auth.bytes
+                        )
+                    )
+                    break
+                except AuthBytesInvalid:
+                    logger.debug(f"Invalid authorization bytes for DC {dc_id}")
+                    continue
+            else:
+                await media_session.stop()
+                raise AuthBytesInvalid
+        else:
+            media_session = Session(
+                client,
+                dc_id,
+                await client.storage.auth_key(),
+                await client.storage.test_mode(),
+                is_media=True,
+            )
+            await media_session.start()
+        logger.debug(f"Created media session for DC {dc_id}")
+        return media_session
+
     async def generate_media_session(self, client: Client, file_id: FileId) -> Session:
         """
-        Generates the media session for the DC that contains the media file.
+        Returns a media session for the DC that contains the media file.
         This is required for getting the bytes from Telegram servers.
 
-        Guarded by a per-DC lock so concurrent requests for the same DC
-        can't race and create/stomp on each other's Session object, which
-        previously caused "read() called while another coroutine is
-        already waiting for incoming data" crashes under concurrent load.
+        A small pool of sessions per DC (Var.MEDIA_SESSIONS_PER_DC) is kept and
+        handed out round-robin: one MTProto session caps how many GetFile
+        requests it runs at once, so a pool is what lets one download (or many
+        parallel connections of a download manager) reach full line speed.
+        The pool grows by one session per call until full, so the first byte
+        is never delayed by building several sessions.
+
+        Creation is guarded by a per-DC lock so concurrent requests can't race
+        and stomp on each other's Session objects ("read() called while another
+        coroutine is already waiting for incoming data" crashes).
         """
+        dc_id = file_id.dc_id
+        target = max(1, Var.MEDIA_SESSIONS_PER_DC)
 
-        lock = self.session_locks.setdefault(file_id.dc_id, asyncio.Lock())
+        pool = self._pools.get(dc_id)
+        if pool and len(pool) >= target:  # fast path, no lock
+            return pool[next(self._rr) % len(pool)]
 
+        lock = self.session_locks.setdefault(dc_id, asyncio.Lock())
         async with lock:
-            media_session = client.media_sessions.get(file_id.dc_id, None)
+            pool = self._pools.setdefault(dc_id, [])
+            if not pool:
+                # adopt a session another component already cached
+                existing = client.media_sessions.get(dc_id)
+                if existing is not None:
+                    pool.append(existing)
+            if len(pool) < target:
+                session = await self._create_media_session(client, dc_id)
+                pool.append(session)
+                client.media_sessions.setdefault(dc_id, session)
+                return session
+            return pool[next(self._rr) % len(pool)]
 
-            if media_session is None:
-                if file_id.dc_id != await client.storage.dc_id():
-                    media_session = Session(
-                        client,
-                        file_id.dc_id,
-                        await Auth(
-                            client, file_id.dc_id, await client.storage.test_mode()
-                        ).create(),
-                        await client.storage.test_mode(),
-                        is_media=True,
-                    )
-                    await media_session.start()
-
-                    for _ in range(6):
-                        exported_auth = await client.invoke(
-                            raw.functions.auth.ExportAuthorization(dc_id=file_id.dc_id)
-                        )
-
-                        try:
-                            await media_session.invoke(
-                                raw.functions.auth.ImportAuthorization(
-                                    id=exported_auth.id, bytes=exported_auth.bytes
-                                )
-                            )
-                            break
-                        except AuthBytesInvalid:
-                            logger.debug(
-                                f"Invalid authorization bytes for DC {file_id.dc_id}"
-                            )
-                            continue
-                    else:
-                        await media_session.stop()
-                        raise AuthBytesInvalid
-                else:
-                    media_session = Session(
-                        client,
-                        file_id.dc_id,
-                        await client.storage.auth_key(),
-                        await client.storage.test_mode(),
-                        is_media=True,
-                    )
-                    await media_session.start()
-                logger.debug(f"Created media session for DC {file_id.dc_id}")
-                client.media_sessions[file_id.dc_id] = media_session
-            else:
-                logger.debug(f"Using cached media session for DC {file_id.dc_id}")
-            return media_session
+    def _evict_session(self, dc_id: int, session: Session) -> None:
+        """Forget a dead media session so the next request builds a fresh one."""
+        pool = self._pools.get(dc_id)
+        if pool and session in pool:
+            pool.remove(session)
+        if self.client.media_sessions.get(dc_id) is session:
+            self.client.media_sessions.pop(dc_id, None)
+            if pool:
+                self.client.media_sessions[dc_id] = pool[0]
+        try:
+            asyncio.get_running_loop().create_task(session.stop())
+        except Exception:
+            pass
 
 
     @staticmethod
@@ -170,6 +238,61 @@ class ByteStreamer:
             )
         return location
 
+    async def _fetch_part(self, state: _FetchState, off: int, limit: int, need: int) -> bytes:
+        """
+        Fetch one `limit`-sized part at `off`, retrying on every transient
+        failure. Returns at least `need` bytes or raises StreamError - it never
+        returns short data, so the response can't end up silently truncated.
+        """
+        retries = max(0, Var.STREAM_RETRIES)
+        last_exc: Optional[BaseException] = None
+        for attempt in range(retries + 1):
+            session = None
+            fid = state.file_id
+            try:
+                session = await self.generate_media_session(self.client, fid)
+                r = await session.invoke(
+                    raw.functions.upload.GetFile(
+                        location=state.location, offset=off, limit=limit
+                    ),
+                )
+                if not isinstance(r, raw.types.upload.File):
+                    raise StreamError(f"unexpected GetFile result {type(r).__name__} at offset {off}")
+                data = r.bytes
+                if len(data) < need:
+                    raise StreamError(f"short read at offset {off}: got {len(data)}, need {need}")
+                return data
+            except asyncio.CancelledError:
+                raise
+            except (errors.FileReferenceExpired, errors.FileReferenceEmpty, errors.FileReferenceInvalid) as e:
+                last_exc = e
+                # file_reference went stale (long download / old link): re-read the message.
+                if state.message_id is None:
+                    break
+                async with state.lock:
+                    if state.file_id is fid:
+                        logger.info(f"file_reference expired for message {state.message_id}, refreshing")
+                        new_fid = await self.refresh_file_properties(state.message_id)
+                        state.location = await self.get_location(new_fid)
+                        state.file_id = new_fid
+                continue  # retry immediately with the new reference
+            except errors.FloodWait as e:
+                last_exc = e
+                await asyncio.sleep(min(float(e.value), 30.0) + 0.5)
+            except (OSError, ConnectionError, AttributeError) as e:
+                # TimeoutError is an OSError. Session/TCP link to the DC died:
+                # evict so the retry builds a fresh one instead of re-using a corpse.
+                last_exc = e
+                logger.warning(f"Media session DC {fid.dc_id} failed at offset {off}: {e!r}. Evicting.")
+                if session is not None:
+                    self._evict_session(fid.dc_id, session)
+            except Exception as e:  # incl. StreamError, other RPC errors
+                last_exc = e
+                logger.warning(f"GetFile failed at offset {off} (attempt {attempt + 1}): {e!r}")
+            if attempt < retries:
+                await asyncio.sleep(min(0.25 * (2 ** attempt), 3.0))
+        raise StreamError(f"giving up on offset {off} after {retries + 1} attempts: {last_exc!r}") from last_exc
+
     async def yield_file(
         self,
         file_id: FileId,
@@ -179,67 +302,57 @@ class ByteStreamer:
         last_part_cut: int,
         part_count: int,
         chunk_size: int,
-    ) -> Union[str, None]:
+        message_id: Optional[int] = None,
+    ):
         """
         Custom generator that yields the bytes of the media file.
+        Keeps Var.STREAM_PREFETCH parts in flight so Telegram latency overlaps
+        with sending to the client, every part is retried on failure, and any
+        unrecoverable error is RAISED (never swallowed) so the caller can abort
+        the connection instead of delivering a short file.
         Modded from <https://github.com/eyaadh/megadlbot_oss/blob/master/mega/telegram/utils/custom_download.py#L20>
         Thanks to Eyaadh <https://github.com/eyaadh>
         """
-        client = self.client
         work_loads[index] += 1
-        logger.debug(f"Starting to yielding file with client {index}.")
-        media_session = await self.generate_media_session(client, file_id)
-
-        current_part = 1
-        location = await self.get_location(file_id)
-
-        async def fetch(off):
-            return await media_session.invoke(
-                raw.functions.upload.GetFile(
-                    location=location, offset=off, limit=chunk_size
-                ),
-            )
-
+        pending: collections.deque = collections.deque()
         try:
-            # kick off first request, then immediately kick off the next
-            # one in background while current chunk gets sent to client.
-            next_task = asyncio.create_task(fetch(offset))
-            while True:
-                r = await next_task
-                if not isinstance(r, raw.types.upload.File):
-                    break
-                chunk = r.bytes
-                if not chunk:
-                    break
+            logger.debug(f"Starting to yielding file with client {index}.")
+            state = _FetchState(file_id, await self.get_location(file_id), message_id)
+            file_size = getattr(file_id, "file_size", 0) or 0
+            depth = max(1, Var.STREAM_PREFETCH)
+            next_part = 0
 
-                offset += chunk_size
-                if current_part < part_count:
-                    next_task = asyncio.create_task(fetch(offset))
+            def need_for(part: int) -> int:
+                n = last_part_cut if part == part_count - 1 else chunk_size
+                if file_size:
+                    n = min(n, file_size - (offset + part * chunk_size))
+                return max(n, 1)
 
-                if part_count == 1:
-                    yield chunk[first_part_cut:last_part_cut]
-                elif current_part == 1:
-                    yield chunk[first_part_cut:]
-                elif current_part == part_count:
-                    yield chunk[:last_part_cut]
-                else:
+            def schedule() -> None:
+                nonlocal next_part
+                while len(pending) < depth and next_part < part_count:
+                    pending.append(asyncio.ensure_future(
+                        self._fetch_part(state, offset + next_part * chunk_size, chunk_size, need_for(next_part))
+                    ))
+                    next_part += 1
+
+            for part in range(part_count):
+                schedule()
+                chunk = await pending.popleft()
+                schedule()  # refill the window before we hand the chunk out
+
+                start = first_part_cut if part == 0 else 0
+                end = last_part_cut if part == part_count - 1 else None
+                if start == 0 and end is None:
                     yield chunk
-
-                current_part += 1
-                if current_part > part_count:
-                    break
-        except (TimeoutError, AttributeError):
-            pass
-        except (OSError, ConnectionError) as e:
-            # media_session TCP link to Telegram DC died (network blip).
-            # Evict dead session from cache so next request builds a fresh
-            # one instead of reusing+retrying same broken connection forever.
-            logger.warning(f"Media session DC {file_id.dc_id} dropped: {e}. Evicting cached session.")
-            dead = client.media_sessions.pop(file_id.dc_id, None)
-            if dead is not None:
-                asyncio.create_task(dead.stop())
+                else:
+                    yield memoryview(chunk)[start:end]
+            logger.debug(f"Finished yielding file with {part_count} parts.")
         finally:
-            logger.debug(f"Finished yielding file with {current_part} parts.")
+            for t in pending:
+                t.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
             work_loads[index] -= 1
 
     
