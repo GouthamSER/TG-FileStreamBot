@@ -9,10 +9,14 @@ load_dotenv()
 
 
 class Var(object):
-    MULTI_CLIENT = str(environ.get("MULTI_CLIENT", True))
-    API_ID = int(environ.get("API_ID"))
-    API_HASH = str(environ.get("API_HASH"))
-    BOT_TOKEN = str(environ.get("BOT_TOKEN"))
+    # set to True at runtime by initialize_clients() when extra bot tokens start
+    MULTI_CLIENT = False
+    for _req in ("API_ID", "API_HASH", "BOT_TOKEN"):
+        if not environ.get(_req):
+            sys.exit(f"{_req} is required — set it in your environment / .env")
+    API_ID = int(environ["API_ID"])
+    API_HASH = str(environ["API_HASH"])
+    BOT_TOKEN = str(environ["BOT_TOKEN"])
     SLEEP_THRESHOLD = int(environ.get("SLEEP_THRESHOLD", "60"))  # 1 minte
     WORKERS = int(environ.get("WORKERS", "16"))  # 16 workers = 16 commands at once
     _bin_channel_raw = environ.get("BIN_CHANNEL")
@@ -47,3 +51,10 @@ class Var(object):
     FSUB_CHANNEL = int(_fsub_raw) if _fsub_raw.lstrip("-").isdigit() else (_fsub_raw or None)
     # Bot owner user_id (for /stats and /broadcast)
     OWNER_ID = int(environ.get("OWNER_ID", "0"))
+    # --- streaming speed / reliability knobs ---
+    # GetFile requests kept in flight per download (1 MiB each). More = faster, more RAM.
+    STREAM_PREFETCH = max(1, min(int(environ.get("STREAM_PREFETCH", "4")), 16))
+    # Telegram media sessions per DC per bot, used round-robin.
+    MEDIA_SESSIONS_PER_DC = max(1, min(int(environ.get("MEDIA_SESSIONS_PER_DC", "3")), 8))
+    # Retries per 1 MiB part before the connection is aborted (client then resumes via Range).
+    STREAM_RETRIES = max(0, min(int(environ.get("STREAM_RETRIES", "5")), 20))

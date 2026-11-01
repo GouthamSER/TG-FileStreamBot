@@ -28,7 +28,6 @@ async def add_user(user_id: int, first_name: str = "", username: str = ""):
     await users_col().update_one(
         {"_id": user_id},
         {"$setOnInsert": {
-            "_id": user_id,
             "first_name": first_name,
             "username": username,
         }},

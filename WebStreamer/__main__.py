@@ -27,7 +27,11 @@ logging.getLogger("aiohttp.web").setLevel(logging.DEBUG if Var.DEBUG else loggin
 
 server = web.AppRunner(web_server())
 
-loop = asyncio.get_event_loop()
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:  # Python 3.12+/3.14: no implicit loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
 
 
@@ -51,7 +55,10 @@ async def start_services():
     await idle()
 
 async def cleanup():
-    await server.cleanup()
+    try:
+        await server.cleanup()
+    except Exception:
+        logging.error("Error cleaning web server", exc_info=True)
     for client_id, client in multi_clients.items():
         if client_id == 0:
             continue
@@ -59,7 +66,10 @@ async def cleanup():
             await client.stop()
         except Exception:
             logging.error(f"Error stopping client {client_id}", exc_info=True)
-    await StreamBot.stop()
+    try:
+        await StreamBot.stop()
+    except Exception:
+        logging.error("Error stopping main client", exc_info=True)
 
 if __name__ == "__main__":
     try:
@@ -67,7 +77,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     except Exception as err:
-        logging.error(err.with_traceback(None))
+        logging.error("Fatal error", exc_info=True)
     finally:
         loop.run_until_complete(cleanup())
         loop.stop()
