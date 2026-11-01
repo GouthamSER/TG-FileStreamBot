@@ -4,6 +4,7 @@
 import re
 import time
 import math
+import asyncio
 import logging
 import secrets
 import mimetypes
@@ -11,7 +12,7 @@ from urllib.parse import quote, unquote
 from aiohttp import web
 from aiohttp.http_exceptions import BadStatusLine
 from WebStreamer.bot import multi_clients, work_loads
-from WebStreamer.server.exceptions import FIleNotFound, InvalidHash
+from WebStreamer.server.exceptions import FIleNotFound, InvalidHash, StreamError
 from WebStreamer import Var, utils, StartTime, __version__, StreamBot
 
 logger = logging.getLogger("routes")
@@ -74,12 +75,15 @@ async def stream_handler(request: web.Request):
     # --- step 2: actually fetch/stream the file ---
     try:
         return await media_streamer(request, message_id, secure_hash, url_file_name)
+    except web.HTTPException:
+        raise
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)
     except FIleNotFound as e:
         raise web.HTTPNotFound(text=e.message)
-    except (BadStatusLine, ConnectionResetError):
-        pass
+    except (BadStatusLine, ConnectionError):
+        # client went away: nothing to send, but aiohttp needs a response object back
+        return web.Response(status=499)
     except AttributeError as e:
         # bin channel message/media is gone but wasn't caught earlier as FIleNotFound
         logger.warning(f"Treating AttributeError as file not found for message_id={message_id}: {e}")
@@ -90,14 +94,65 @@ async def stream_handler(request: web.Request):
 
 class_cache = {}
 
+CHUNK_SIZE = 1024 * 1024  # Telegram GetFile max limit
+
+
+class RangeNotSatisfiable(Exception):
+    pass
+
+
+def parse_range(header, file_size: int):
+    """
+    Parse an HTTP Range header against `file_size` (RFC 7233).
+    Returns (start, end) inclusive, or None when the header is absent / not a
+    single valid bytes range (then the whole file is served with 200).
+    Raises RangeNotSatisfiable when it is valid but outside the file.
+    Handles `a-b`, `a-`, suffix `-n`, and clamps `b` past EOF instead of
+    rejecting it (download managers often ask for huge end offsets).
+    """
+    if not header:
+        return None
+    header = header.strip()
+    if not header.lower().startswith("bytes="):
+        return None
+    spec = header[6:].strip()
+    if "," in spec or "-" not in spec:
+        return None  # multi-range unsupported -> ignore, serve full body
+    first, _, last = spec.partition("-")
+    first, last = first.strip(), last.strip()
+    try:
+        if first == "":
+            if last == "":
+                return None
+            suffix = int(last)
+            if suffix <= 0:
+                raise RangeNotSatisfiable
+            return max(file_size - suffix, 0), file_size - 1
+        start = int(first)
+        end = int(last) if last != "" else file_size - 1
+    except ValueError:
+        return None
+    if start < 0 or (last != "" and end < start):
+        return None  # syntactically invalid -> ignore
+    if start >= file_size:
+        raise RangeNotSatisfiable
+    return start, min(end, file_size - 1)
+
+
+def _if_range_ok(request: web.Request, etag: str) -> bool:
+    """If-Range present and not matching our ETag -> client's partial copy is stale, send full file."""
+    val = request.headers.get("If-Range")
+    if not val:
+        return True
+    return val.strip() == etag
+
+
 async def media_streamer(request: web.Request, message_id: int, secure_hash: str, url_file_name: str = None):
-    range_header = request.headers.get("Range", 0)
-    
     index = min(work_loads, key=work_loads.get)
     faster_client = multi_clients[index]
     
     if Var.MULTI_CLIENT:
-        logger.info(f"Client {index} is now serving {request.remote}")
+        logger.debug(f"Client {index} is now serving {request.remote}")
 
     if faster_client in class_cache:
         tg_connect = class_cache[faster_client]
@@ -106,48 +161,44 @@ async def media_streamer(request: web.Request, message_id: int, secure_hash: str
         logger.debug(f"Creating new ByteStreamer object for client {index}")
         tg_connect = utils.ByteStreamer(faster_client)
         class_cache[faster_client] = tg_connect
-    logger.debug("before calling get_file_properties")
     file_id = await tg_connect.get_file_properties(message_id)
-    logger.debug("after calling get_file_properties")
-    
     
     if utils.get_hash(file_id.unique_id, Var.HASH_LENGTH) != secure_hash:
         logger.debug(f"Invalid hash for message with ID {message_id}")
         raise InvalidHash
     
     file_size = file_id.file_size
+    if not file_size or file_size <= 0:
+        # never answer with an empty 200 for a real file: that is a silent "file loss"
+        logger.error(f"Unknown/zero file size for message {message_id}")
+        raise web.HTTPBadGateway(text="502: File size unavailable")
 
-    if range_header:
-        from_bytes, until_bytes = range_header.replace("bytes=", "").split("-")
-        from_bytes = int(from_bytes)
-        until_bytes = int(until_bytes) if until_bytes else file_size - 1
-    else:
-        from_bytes = request.http_range.start or 0
-        until_bytes = (request.http_range.stop or file_size) - 1
-
-    if (until_bytes > file_size) or (from_bytes < 0) or (until_bytes < from_bytes):
+    etag = f'"{file_id.unique_id}"'
+    try:
+        byte_range = parse_range(request.headers.get("Range"), file_size)
+    except RangeNotSatisfiable:
         return web.Response(
             status=416,
             body="416: Range not satisfiable",
             headers={"Content-Range": f"bytes */{file_size}"},
         )
+    if byte_range is not None and not _if_range_ok(request, etag):
+        byte_range = None
 
-    chunk_size = 1024 * 1024
-    until_bytes = min(until_bytes, file_size - 1)
+    partial = byte_range is not None
+    from_bytes, until_bytes = byte_range if partial else (0, file_size - 1)
 
+    chunk_size = CHUNK_SIZE
     offset = from_bytes - (from_bytes % chunk_size)
     first_part_cut = from_bytes - offset
     last_part_cut = until_bytes % chunk_size + 1
 
     req_length = until_bytes - from_bytes + 1
-    part_count = math.floor(until_bytes / chunk_size) - math.floor(offset / chunk_size) + 1
-    body = tg_connect.yield_file(
-        file_id, index, offset, first_part_cut, last_part_cut, part_count, chunk_size
-    )
+    part_count = until_bytes // chunk_size - offset // chunk_size + 1
     mime_type = file_id.mime_type
 
     # Priority: filename from URL path > filename from cached file_id
-    file_name = url_file_name or utils.get_name(file_id)
+    file_name = utils.file_properties.sanitize_filename(url_file_name) if url_file_name else utils.get_name(file_id)
 
     disposition = "attachment"
 
@@ -159,16 +210,42 @@ async def media_streamer(request: web.Request, message_id: int, secure_hash: str
     # Some download managers (FDM, older IDM builds) don't parse the RFC5987
     # filename*= form and grab a truncated/partial name instead — sending a
     # plain ascii filename="" fallback alongside filename*= fixes that.
-    ascii_fallback = file_name.encode("ascii", "ignore").decode() or "file"
+    ascii_fallback = "".join(c if (c.isascii() and c.isprintable() and c not in '"\\') else "_" for c in file_name) or "file"
 
-    return web.Response(
-        status=206 if range_header else 200,
-        body=body,
-        headers={
-            "Content-Type": f"{mime_type}",
-            "Content-Range": f"bytes {from_bytes}-{until_bytes}/{file_size}",
-            "Content-Length": str(req_length),
-            "Content-Disposition": f'{disposition}; filename="{ascii_fallback}"; filename*=UTF-8\'\'{quote(file_name)}',
-            "Accept-Ranges": "bytes",
-        },
+    encoded_name = quote(file_name, safe="")
+    headers = {
+        "Content-Type": f"{mime_type}",
+        "Content-Disposition": f'{disposition}; filename="{ascii_fallback}"; filename*=UTF-8\'\'{encoded_name}',
+        "Accept-Ranges": "bytes",
+        "ETag": etag,
+    }
+    if partial:
+        headers["Content-Range"] = f"bytes {from_bytes}-{until_bytes}/{file_size}"
+
+    resp = web.StreamResponse(status=206 if partial else 200, headers=headers)
+    resp.content_length = req_length
+    await resp.prepare(request)
+    if request.method == "HEAD":
+        return resp
+
+    body = tg_connect.yield_file(
+        file_id, index, offset, first_part_cut, last_part_cut, part_count, chunk_size, message_id
     )
+    try:
+        async for chunk in body:
+            await resp.write(chunk)
+    except (ConnectionError, asyncio.CancelledError):
+        # client closed / cancelled: just stop (generator cleanup runs in finally)
+        raise
+    except Exception as e:
+        # Unrecoverable upstream failure AFTER headers went out. Drop the TCP
+        # connection so the client sees an incomplete body (-> resumes via Range)
+        # rather than a complete-looking but truncated file.
+        logger.error(f"Aborting stream of message {message_id}: {e!r}", exc_info=not isinstance(e, StreamError))
+        if request.transport is not None:
+            request.transport.close()
+        return resp
+    finally:
+        await body.aclose()
+    await resp.write_eof()
+    return resp
