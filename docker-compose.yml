@@ -7,5 +7,7 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      - PORT=8080
     ports:
-      - "1156:1156" #change to your vps port
+      - "8080:8080" #host:container, container port must equal PORT

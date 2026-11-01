@@ -199,6 +199,9 @@ HAS_SSL=True
 | `ALLOWED_USERS` | _(empty)_ | Comma-separated Telegram user IDs/usernames allowed to use the bot. Leave empty for public access |
 | `HASH_LENGTH` | `6` | Length of the hash in generated URLs. Must be between 6 and 63 |
 | `SLEEP_THRESHOLD` | `60` | Seconds to sleep on flood wait before retrying |
+| `STREAM_PREFETCH` | `4` | 1 MiB parts kept in flight per download (1-16). Higher = faster, more RAM |
+| `MEDIA_SESSIONS_PER_DC` | `3` | Telegram media sessions per DC per bot, used round-robin (1-8) |
+| `STREAM_RETRIES` | `5` | Retries per part before the connection is aborted so the client can resume |
 | `WORKERS` | `6` | Max concurrent workers for handling updates |
 | `PORT` | `8080` | Port the web server listens on |
 | `WEB_SERVER_BIND_ADDRESS` | `0.0.0.0` | Server bind address |

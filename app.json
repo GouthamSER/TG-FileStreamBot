@@ -25,6 +25,9 @@
     "DATABASE_NAME": { "description": "Database name", "value": "FileStreamBot", "required": false },
     "OWNER_ID": { "description": "Your Telegram user ID — required for /stats and /broadcast", "required": false },
     "FSUB_CHANNEL": { "description": "Channel username/ID users must join before using the bot. Leave empty to disable", "required": false },
+    "STREAM_PREFETCH": { "description": "1 MiB parts kept in flight per download (1-16)", "value": "4", "required": false },
+    "MEDIA_SESSIONS_PER_DC": { "description": "Telegram media sessions per DC per bot (1-8)", "value": "3", "required": false },
+    "STREAM_RETRIES": { "description": "Retries per part before aborting the connection", "value": "5", "required": false },
     "DEBUG": { "description": "Enable debug logging", "value": "False", "required": false }
   },
   "formation": {
