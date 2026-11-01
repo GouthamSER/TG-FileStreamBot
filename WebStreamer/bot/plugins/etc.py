@@ -111,4 +111,4 @@ async def stats_callback(_, cq):
 @StreamBot.on_message(filters.command("restart") & filters.private & filters.create(owner_filter))
 async def restart_bot(_, m: Message):
     await m.reply("♻️ <b>Bot is restarting...</b>", quote=True)
-    os.execv(sys.executable, ['python3'] + sys.argv)
+    os.execv(sys.executable, [sys.executable, "-m", "WebStreamer"] + sys.argv[1:])
