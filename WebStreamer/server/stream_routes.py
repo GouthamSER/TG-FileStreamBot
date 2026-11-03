@@ -39,42 +39,65 @@ async def root_route_handler(_):
     )
 
 
+def parse_link(path: str, query_hash=None):
+    """
+    Turn a request path into ([(message_id, hash), ...], url_file_name).
+    Supported:
+      /<msgid><hash>                short link (recommended)
+      /<msgid><hash>/<filename>     short link + filename for dumb download managers
+      /dl/<msgid><hash>
+      /<msgid>/<filename>?hash=<h>  long link (hash in query)
+      /<hash><msgid>                legacy short link
+    The hash is a fixed-length hex suffix, so <msgid><hash> parses exactly.
+    <hash><msgid> on an all-digit string can collide with it, so several
+    candidates are returned and the caller tries them in order.
+    Raises ValueError for anything that is not a link.
+    """
+    n = Var.HASH_LENGTH
+    dl = re.fullmatch(r"dl/(\d+)([0-9a-f]{%d})" % n, path)
+    if dl:
+        return [(int(dl.group(1)), dl.group(2))], None
+
+    first, _, rest = path.partition("/")
+    name = unquote(rest) if rest else None
+
+    if query_hash is not None:
+        m = re.search(r"(\d+)", first)
+        if not m:
+            raise ValueError("no message id")
+        return [(int(m.group(1)), query_hash)], name
+
+    candidates = []
+    m = re.fullmatch(r"(\d+)([0-9a-f]{%d})" % n, first)
+    if m:
+        candidates.append((int(m.group(1)), m.group(2)))
+    m = re.fullmatch(r"([0-9a-f]{%d})(\d+)" % n, first)
+    if m and not rest:
+        candidates.append((int(m.group(2)), m.group(1)))
+    if not candidates:
+        raise ValueError("not a link")
+    return candidates, name
+
+
 @routes.get(r"/{path:\S+}", allow_head=True)
 async def stream_handler(request: web.Request):
     # --- step 1: parse the url path itself ---
     try:
-        path = request.match_info["path"]
-        url_file_name = None
-        match = re.search(r"^([0-9a-f]{%s})(\d+)$" % (Var.HASH_LENGTH), path)
-        dl_match = re.search(r"^dl/(\d+)([0-9a-f]{%s})$" % (Var.HASH_LENGTH), path)
-        if dl_match:
-            # dl link: /dl/msgid+hash — no filename in URL
-            message_id = int(dl_match.group(1))
-            secure_hash = dl_match.group(2)
-        elif match:
-            # short link: /hash+msgid  — no filename in URL
-            secure_hash = match.group(1)
-            message_id = int(match.group(2))
-        else:
-            # long link: /msgid/filename?hash=...
-            parts = path.split("/", 1)
-            id_match = re.search(r"(\d+)", parts[0])
-            if not id_match:
-                # not a real generated link (probe/crawler/favicon etc) -> bad request, not "file not found"
-                raise web.HTTPBadRequest(text="400: Bad request, invalid link")
-            message_id = int(id_match.group(1))
-            secure_hash = request.rel_url.query.get("hash")
-            if len(parts) > 1 and parts[1]:
-                url_file_name = unquote(parts[1])
-    except web.HTTPException:
-        raise
+        candidates, url_file_name = parse_link(request.match_info["path"], request.rel_url.query.get("hash"))
     except Exception as e:
-        logger.warning(f"Bad/malformed url path '{request.path}': {e}")
+        # not a real generated link (probe/crawler/favicon etc) -> 400, not "file not found"
+        logger.debug(f"Bad/malformed url path '{request.path}': {e}")
         raise web.HTTPBadRequest(text="400: Bad request, invalid link")
 
     # --- step 2: actually fetch/stream the file ---
+    message_id = candidates[0][0]
     try:
-        return await media_streamer(request, message_id, secure_hash, url_file_name)
+        for i, (message_id, secure_hash) in enumerate(candidates):
+            try:
+                return await media_streamer(request, message_id, secure_hash, url_file_name)
+            except (InvalidHash, FIleNotFound):
+                if i == len(candidates) - 1:
+                    raise  # last interpretation failed too
     except web.HTTPException:
         raise
     except InvalidHash as e:
