@@ -102,11 +102,9 @@ async def media_receive_handler(_, m: Message):
 
     file_hash = get_hash(log_msg, Var.HASH_LENGTH)
     file_name = get_name(m)
-    # safe="" : escape EVERYTHING (incl. literal '/', '#', '?') so a filename
-    # containing those chars can't corrupt the /msgid/filename url path
-    safe_file_name = quote(file_name, safe="")
-    stream_link = f"{Var.URL}{log_msg.id}/{safe_file_name}?hash={file_hash}"
-    short_link = f"{Var.URL}{file_hash}{log_msg.id}"
+    # short link: url + msgid + hash. Full filename is sent by the server in
+    # Content-Disposition, so it is not needed in the URL.
+    stream_link = f"{Var.URL}{log_msg.id}{file_hash}"
     logger.info(f"Generated link: {stream_link} for {m.from_user.first_name}")
 
     media = get_media_from_message(m)
