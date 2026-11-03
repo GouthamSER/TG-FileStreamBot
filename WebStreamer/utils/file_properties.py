@@ -39,8 +39,10 @@ async def get_file_ids(client: Client, chat_id: int, message_id: int) -> Optiona
         raise FIleNotFound
     setattr(file_id, "file_size", getattr(media, "file_size", 0) or 0)
     setattr(file_id, "mime_type", getattr(media, "mime_type", "") or "")
-    setattr(file_id, "file_name", getattr(media, "file_name", "") or "")
     setattr(file_id, "unique_id", file_unique_id)
+    # full name (caption-aware) so links WITHOUT a filename in the URL still
+    # download under the complete name via Content-Disposition
+    setattr(file_id, "file_name", get_name(message))
     return file_id
 
 def get_media_from_message(message: "Message") -> Any:
@@ -70,12 +72,45 @@ def get_hash(media_msg: Union[str, Message], length: int) -> str:
     return long_hash[:length]
 
 
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def _full_name_from_caption(file_name: str, caption) -> str:
+    """
+    Telegram cuts long document file names (uploaders like PSA end up with
+    "...10bit.WEBR.mkv"), while the caption's first line still holds the full
+    release name ("...10bit.WEBRip.6CH.x265.HEVC-PSA"). If that caption line
+    clearly is the longer version of the same name (same start, just more),
+    return it with the real extension; otherwise keep file_name untouched.
+    """
+    if not file_name or not caption:
+        return file_name
+    lines = str(caption).strip().splitlines()
+    if not lines:
+        return file_name
+    line = lines[0].strip()
+    stem, dot, ext = file_name.rpartition(".")
+    if not dot or not stem or not re.fullmatch(r"[A-Za-z0-9]{1,5}", ext):
+        stem, ext = file_name, ""
+    else:
+        ext = "." + ext
+    if ext and line.lower().endswith(ext.lower()):
+        line = line[: -len(ext)].rstrip()
+    n_line, n_stem = _norm(line), _norm(stem)
+    if n_stem and len(n_line) > len(n_stem) and n_line.startswith(n_stem):
+        return f"{line}{ext}"
+    return file_name
+
+
 def get_name(media_msg: Union[Message, FileId]) -> str:
     file_name = ""
 
     if isinstance(media_msg, Message):
         media = get_media_from_message(media_msg)
         file_name = getattr(media, "file_name", "") or ""
+        if file_name:
+            file_name = _full_name_from_caption(file_name, getattr(media_msg, "caption", None))
         if not file_name and getattr(media_msg, "caption", None):
             # compressed video/photo sends strip file_name entirely — Telegram
             # only preserves it when sent as Document/File. caption's first
@@ -134,7 +169,10 @@ def get_name(media_msg: Union[Message, FileId]) -> str:
 
         # stable per-file stamp: a timestamp would give every request (and every
         # resume) a different filename, which confuses download managers.
-        stamp = getattr(media_msg, "unique_id", None) or datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        stamp = getattr(media_msg, "unique_id", None)
+        if not stamp and isinstance(media_msg, Message):
+            stamp = getattr(get_media_from_message(media_msg), "file_unique_id", None)
+        stamp = stamp or datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         file_name = f"{media_type}-{stamp}{ext}"
 
     return sanitize_filename(file_name)
